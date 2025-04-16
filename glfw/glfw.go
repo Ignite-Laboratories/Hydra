@@ -5,7 +5,6 @@ import (
 	"github.com/go-gl/glfw/v3.3/glfw"
 	"github.com/ignite-laboratories/core"
 	"github.com/ignite-laboratories/core/std"
-	"github.com/veandco/go-sdl2/sdl"
 	"log"
 	"runtime"
 	"sync"
@@ -40,9 +39,7 @@ var running bool
 type Window struct {
 	*Head
 
-	WindowID uint32
-
-	EventHandler func(sdl.Event)
+	EventHandler func()
 }
 
 func (w *Window) destroy() {
@@ -212,5 +209,5 @@ func (w *Window) start(impulsable core.Impulsable) {
 	impulsable.Cleanup()
 	delete(Windows, w.ID)
 	w.destroy()
-	core.Verbosef(ModuleName, "window [%d.%d] cleaned up\n", w.WindowID, w.ID)
+	core.Verbosef(ModuleName, "window [%d] cleaned up\n", w.ID)
 }
