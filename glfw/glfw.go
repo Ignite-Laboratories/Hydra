@@ -5,6 +5,7 @@ import (
 	"github.com/go-gl/glfw/v3.3/glfw"
 	"github.com/ignite-laboratories/core"
 	"github.com/ignite-laboratories/core/std"
+	"github.com/ignite-laboratories/hydra"
 	"log"
 	"runtime"
 	"sync"
@@ -25,11 +26,6 @@ var GLVersion struct {
 	Major int
 	Minor int
 	Core  bool
-}
-
-var DefaultSize = std.XY[int]{
-	X: 640,
-	Y: 480,
 }
 
 var once sync.Once
@@ -104,10 +100,17 @@ func run() {
 func CreateWindow(engine *core.Engine, title string, size *std.XY[int], pos *std.XY[int], impulsable core.Impulsable, potential core.Potential, muted bool) *Head {
 	Activate()
 
+	// TODO: Position - In GLFW, this requires setting the window hint to hidden, then setting the position, then "showing" the window at that location
+	// Yes, GLFW is really sluggish compared to SDL - don't stress too much on this part right now
+
 	var handle *glfw.Window
 	Synchro.Send(func() {
 		mutex.Lock()
 		defer mutex.Unlock()
+
+		if size == nil {
+			size = &hydra.DefaultSize
+		}
 
 		h, err := glfw.CreateWindow(size.X, size.Y, title, nil, nil)
 		if err != nil {
@@ -143,7 +146,7 @@ func CreateFullscreenWindow(engine *core.Engine, title string, impulsable core.I
 		mutex.Lock()
 		defer mutex.Unlock()
 
-		h, err := glfw.CreateWindow(DefaultSize.X, DefaultSize.Y, title, nil, nil)
+		h, err := glfw.CreateWindow(hydra.DefaultSize.X, hydra.DefaultSize.Y, title, nil, nil)
 		if err != nil {
 			core.Fatalf(ModuleName, "failed to create GLFW window: %v\n", err)
 		}

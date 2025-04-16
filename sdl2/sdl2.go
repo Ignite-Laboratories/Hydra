@@ -4,10 +4,12 @@ import (
 	"github.com/go-gl/gl/v3.3-core/gl"
 	"github.com/ignite-laboratories/core"
 	"github.com/ignite-laboratories/core/std"
+	"github.com/ignite-laboratories/hydra"
 	"github.com/veandco/go-sdl2/sdl"
 	"runtime"
 	"sync"
 	"time"
+	"unsafe"
 )
 
 func init() {
@@ -26,11 +28,6 @@ var GLVersion struct {
 	Core  bool
 }
 
-var DefaultSize = std.XY[int]{
-	X: 640,
-	Y: 480,
-}
-
 var once sync.Once
 var running bool
 
@@ -40,9 +37,19 @@ type wrapper struct {
 }
 
 func (w *wrapper) destroy() {
-	Synchro.Send(func() {
+	// Queue up the destruction action on the SDL thread...
+	go Synchro.Send(func() {
 		w.Definition.Handle.Destroy()
 	})
+
+	// ...then send an artificial event to trigger the event poll to cycle
+	userEvent := sdl.UserEvent{
+		Type:  destructionEvent,
+		Code:  int32(core.NextID()),
+		Data1: unsafe.Pointer(uintptr(w.ID)),
+		Data2: unsafe.Pointer(uintptr(w.WindowID)),
+	}
+	sdl.PushEvent(&userEvent)
 }
 
 func reset() {
@@ -55,9 +62,7 @@ func reset() {
 // HasNoWindows provides a potential that returns true when all the windows have been globally closed.
 func HasNoWindows(ctx core.Context) bool {
 	if len(Windows) == 0 {
-		// Give SDL a second to clean up before reporting a stop condition.
 		running = false
-		time.Sleep(time.Second)
 		return true
 	}
 	return false
@@ -70,6 +75,8 @@ func Activate() {
 func Stop() {
 	running = false
 }
+
+var destructionEvent uint32
 
 func run() {
 	var wg sync.WaitGroup
@@ -103,6 +110,8 @@ func run() {
 		driver = sdl.GetCurrentAudioDriver()
 		core.Verbosef(ModuleName, "SDL audio driver: %s\n", driver)
 
+		destructionEvent = sdl.RegisterEvents(1)
+
 		wg.Done()
 
 		for core.Alive && running {
@@ -130,6 +139,14 @@ func run() {
 								break
 							}
 						}
+					}
+				case *sdl.UserEvent:
+					if e.Type == destructionEvent {
+						// a window was fully destroyed
+						id := uint64(uintptr(e.Data1))
+						windowID := uint64(uintptr(e.Data2))
+						delete(Windows, id)
+						core.Verbosef(ModuleName, "window [%d.%d] cleaned up\n", windowID, id)
 					}
 				case *sdl.KeyboardEvent:
 					if e.Type == sdl.KEYDOWN {
@@ -162,8 +179,8 @@ func CreateWindow(engine *core.Engine, title string, size *std.XY[int], pos *std
 			posY = pos.Y
 		}
 
-		var sizeX = DefaultSize.X
-		var sizeY = DefaultSize.Y
+		var sizeX = hydra.DefaultSize.X
+		var sizeY = hydra.DefaultSize.Y
 		if size != nil {
 			sizeX = size.X
 			sizeY = size.Y
@@ -210,7 +227,7 @@ func CreateFullscreenWindow(engine *core.Engine, title string, impulsable core.I
 		h, err := sdl.CreateWindow(
 			title,
 			sdl.WINDOWPOS_UNDEFINED, sdl.WINDOWPOS_UNDEFINED,
-			int32(DefaultSize.X), int32(DefaultSize.Y),
+			int32(hydra.DefaultSize.X), int32(hydra.DefaultSize.Y),
 			sdl.WINDOW_OPENGL|sdl.WINDOW_FULLSCREEN_DESKTOP,
 		)
 		if err != nil {
@@ -271,7 +288,5 @@ func (w *wrapper) start(impulsable core.Impulsable) {
 		time.Sleep(time.Millisecond)
 	}
 	impulsable.Cleanup()
-	delete(Windows, w.ID)
 	w.destroy()
-	core.Verbosef(ModuleName, "window [%d.%d] cleaned up\n", w.WindowID, w.ID)
 }
