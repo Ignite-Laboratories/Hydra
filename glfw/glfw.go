@@ -89,6 +89,7 @@ func run() {
 		}
 		defer glfw.Terminate()
 
+		glfw.WindowHint(glfw.ContextCreationAPI, glfw.EGLContextAPI)
 		glfw.WindowHint(glfw.ContextVersionMajor, GLVersion.Major)
 		glfw.WindowHint(glfw.ContextVersionMinor, GLVersion.Minor)
 		if GLVersion.Core {
