@@ -5,4 +5,10 @@ import (
 	"github.com/ignite-laboratories/hydra"
 )
 
-type Head hydra.Head[*glfw.Window, any, any]
+type Head hydra.Head[*glfw.Window]
+
+func (w *Head) destroy() {
+	Synchro.Send(func() {
+		w.Definition.Destroy()
+	})
+}

@@ -18,7 +18,7 @@ func init() {
 	reset()
 }
 
-var Windows map[uint64]*Window
+var Windows map[uint64]*Head
 var Synchro std.Synchro
 
 var GLVersion struct {
@@ -36,21 +36,9 @@ var once sync.Once
 var mutex sync.Mutex
 var running bool
 
-type Window struct {
-	*Head
-
-	EventHandler func()
-}
-
-func (w *Window) destroy() {
-	Synchro.Send(func() {
-		w.Handle.Destroy()
-	})
-}
-
 func reset() {
 	once = sync.Once{}
-	Windows = make(map[uint64]*Window)
+	Windows = make(map[uint64]*Head)
 	Synchro = make(std.Synchro)
 	running = false
 }
@@ -128,24 +116,23 @@ func CreateWindow(engine *core.Engine, title string, size *std.XY[int], pos *std
 		handle = h
 	})
 
-	w := &Window{}
-	w.Head = &Head{}
-	w.Synchro = make(std.Synchro)
-	w.Handle = handle
-	w.System = core.CreateSystem(engine, func(ctx core.Context) {
-		if w.Alive {
-			w.Synchro.Send(func() {
+	head := &Head{}
+	head.Synchro = make(std.Synchro)
+	head.Definition = handle
+	head.System = core.CreateSystem(engine, func(ctx core.Context) {
+		if head.Alive {
+			head.Synchro.Send(func() {
 				impulsable.Impulse(ctx)
-				w.Handle.SwapBuffers()
+				head.Definition.SwapBuffers()
 			})
 		}
 	}, potential, muted)
-	Windows[w.ID] = w
+	Windows[head.ID] = head
 
-	core.Verbosef(ModuleName, "window [%d] created\n", w.ID)
-	go w.start(impulsable)
+	core.Verbosef(ModuleName, "window [%d] created\n", head.ID)
+	go head.start(impulsable)
 
-	return w.Head
+	return head
 }
 
 func CreateFullscreenWindow(engine *core.Engine, title string, impulsable core.Impulsable, potential core.Potential, muted bool) *Head {
@@ -163,31 +150,30 @@ func CreateFullscreenWindow(engine *core.Engine, title string, impulsable core.I
 		handle = h
 	})
 
-	w := &Window{}
-	w.Head = &Head{}
-	w.Synchro = make(std.Synchro)
-	w.Handle = handle
-	w.System = core.CreateSystem(engine, func(ctx core.Context) {
-		if w.Alive {
-			w.Synchro.Send(func() {
+	head := &Head{}
+	head.Synchro = make(std.Synchro)
+	head.Definition = handle
+	head.System = core.CreateSystem(engine, func(ctx core.Context) {
+		if head.Alive {
+			head.Synchro.Send(func() {
 				impulsable.Impulse(ctx)
-				w.Handle.SwapBuffers()
+				head.Definition.SwapBuffers()
 			})
 		}
 	}, potential, muted)
-	Windows[w.ID] = w
+	Windows[head.ID] = head
 
-	core.Verbosef(ModuleName, "fullscreen window [%d] created\n", w.ID)
-	go w.start(impulsable)
+	core.Verbosef(ModuleName, "fullscreen window [%d] created\n", head.ID)
+	go head.start(impulsable)
 
-	return w.Head
+	return head
 }
 
-func (w *Window) start(impulsable core.Impulsable) {
+func (w *Head) start(impulsable core.Impulsable) {
 	runtime.LockOSThread()
 	defer runtime.UnlockOSThread()
 
-	w.Handle.MakeContextCurrent()
+	w.Definition.MakeContextCurrent()
 
 	//sdl.GLSetSwapInterval(1)
 
@@ -200,7 +186,7 @@ func (w *Window) start(impulsable core.Impulsable) {
 
 	core.Verbosef(ModuleName, "[%d] initialized with %s\n", w.ID, glVersion)
 	impulsable.Initialize()
-	for core.Alive && w.Alive && !w.Handle.ShouldClose() {
+	for core.Alive && w.Alive && !w.Definition.ShouldClose() {
 		w.Synchro.Engage()
 
 		// GL threads don't need to operate more than 1kHz

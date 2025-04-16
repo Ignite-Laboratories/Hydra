@@ -17,7 +17,7 @@ func init() {
 	reset()
 }
 
-var Windows map[uint64]*Window
+var Windows map[uint64]*wrapper
 var Synchro std.Synchro
 
 var GLVersion struct {
@@ -34,23 +34,20 @@ var DefaultSize = std.XY[int]{
 var once sync.Once
 var running bool
 
-type Window struct {
+type wrapper struct {
 	*Head
-
 	WindowID uint32
-
-	EventHandler func(sdl.Event)
 }
 
-func (w *Window) destroy() {
+func (w *wrapper) destroy() {
 	Synchro.Send(func() {
-		w.Handle.Destroy()
+		w.Definition.Handle.Destroy()
 	})
 }
 
 func reset() {
 	once = sync.Once{}
-	Windows = make(map[uint64]*Window)
+	Windows = make(map[uint64]*wrapper)
 	Synchro = make(std.Synchro)
 	running = false
 }
@@ -118,8 +115,8 @@ func run() {
 
 				// Pass all events along to the window event handlers
 				for _, sys := range Windows {
-					if sys.EventHandler != nil {
-						sys.EventHandler(event)
+					if sys.Definition.EventHandler != nil {
+						sys.Definition.EventHandler(event)
 					}
 				}
 
@@ -184,16 +181,16 @@ func CreateWindow(engine *core.Engine, title string, size *std.XY[int], pos *std
 		handle = h
 	})
 
-	w := &Window{}
+	w := &wrapper{}
 	w.Head = &Head{}
 	w.Synchro = make(std.Synchro)
-	w.Handle = handle
+	w.Definition.Handle = handle
 	w.WindowID, _ = handle.GetID()
 	w.System = core.CreateSystem(engine, func(ctx core.Context) {
 		if w.Alive {
 			w.Synchro.Send(func() {
 				impulsable.Impulse(ctx)
-				w.Handle.GLSwap()
+				w.Definition.Handle.GLSwap()
 			})
 		}
 	}, potential, muted)
@@ -222,16 +219,16 @@ func CreateFullscreenWindow(engine *core.Engine, title string, impulsable core.I
 		handle = h
 	})
 
-	w := &Window{}
+	w := &wrapper{}
 	w.Head = &Head{}
 	w.Synchro = make(std.Synchro)
-	w.Handle = handle
+	w.Definition.Handle = handle
 	w.WindowID, _ = handle.GetID()
 	w.System = core.CreateSystem(engine, func(ctx core.Context) {
 		if w.Alive {
 			w.Synchro.Send(func() {
 				impulsable.Impulse(ctx)
-				w.Handle.GLSwap()
+				w.Definition.Handle.GLSwap()
 			})
 		}
 	}, potential, muted)
@@ -243,11 +240,11 @@ func CreateFullscreenWindow(engine *core.Engine, title string, impulsable core.I
 	return w.Head
 }
 
-func (w *Window) start(impulsable core.Impulsable) {
+func (w *wrapper) start(impulsable core.Impulsable) {
 	runtime.LockOSThread()
 	defer runtime.UnlockOSThread()
 
-	glContext, err := w.Handle.GLCreateContext()
+	glContext, err := w.Definition.Handle.GLCreateContext()
 	if err != nil {
 		core.Fatalf(ModuleName, "failed to create OpenGL context: %v\n", err)
 	}
@@ -261,7 +258,7 @@ func (w *Window) start(impulsable core.Impulsable) {
 
 	glVersion := gl.GoStr(gl.GetString(gl.VERSION))
 
-	w.Context = glContext
+	w.Definition.Context = glContext
 	defer sdl.GLDeleteContext(glContext)
 
 	core.Verbosef(ModuleName, "[%d.%d] initialized with %s\n", w.WindowID, w.ID, glVersion)

@@ -5,12 +5,9 @@ import (
 	"github.com/ignite-laboratories/core/std"
 )
 
-type Head[THandle any, TContext any, TEvent any] struct {
+type Head[TDefinition any] struct {
 	*core.System
 
-	Handle  THandle
-	Context TContext
-	Synchro std.Synchro
-
-	EventHandler func(TEvent)
+	Definition TDefinition
+	Synchro    std.Synchro
 }
