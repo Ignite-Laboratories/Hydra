@@ -123,12 +123,7 @@ func CreateWindow(engine *core.Engine, title string, size *std.XY[int], pos *std
 	head.Synchro = make(std.Synchro)
 	head.Definition = handle
 	head.System = core.CreateSystem(engine, func(ctx core.Context) {
-		if head.Alive {
-			head.Synchro.Send(func() {
-				impulsable.Impulse(ctx)
-				head.Definition.SwapBuffers()
-			})
-		}
+		impulse(head, impulsable, ctx)
 	}, potential, muted)
 	Windows[head.ID] = head
 
@@ -157,12 +152,7 @@ func CreateFullscreenWindow(engine *core.Engine, title string, impulsable core.I
 	head.Synchro = make(std.Synchro)
 	head.Definition = handle
 	head.System = core.CreateSystem(engine, func(ctx core.Context) {
-		if head.Alive {
-			head.Synchro.Send(func() {
-				impulsable.Impulse(ctx)
-				head.Definition.SwapBuffers()
-			})
-		}
+		impulse(head, impulsable, ctx)
 	}, potential, muted)
 	Windows[head.ID] = head
 
@@ -170,6 +160,15 @@ func CreateFullscreenWindow(engine *core.Engine, title string, impulsable core.I
 	go head.start(impulsable)
 
 	return head
+}
+
+func impulse(head *Head, impulsable core.Impulsable, ctx core.Context) {
+	if core.Alive && head.Alive {
+		head.Synchro.Send(func() {
+			impulsable.Impulse(ctx)
+			head.Definition.SwapBuffers()
+		})
+	}
 }
 
 func (w *Head) start(impulsable core.Impulsable) {
@@ -186,15 +185,17 @@ func (w *Head) start(impulsable core.Impulsable) {
 	}
 
 	glVersion := gl.GoStr(gl.GetString(gl.VERSION))
-
 	core.Verbosef(ModuleName, "[%d] initialized with %s\n", w.ID, glVersion)
+
 	impulsable.Initialize()
 	for core.Alive && w.Alive && !w.Definition.ShouldClose() {
+		impulsable.Lock()
 		w.Synchro.Engage()
-
-		// GL threads don't need to operate more than 1kHz
+		impulsable.Unlock()
+		
+		// GL threads don't need to operate at more than 1kHz
 		// Why waste the cycles?
-		//time.Sleep(time.Millisecond)
+		time.Sleep(time.Millisecond)
 	}
 	impulsable.Cleanup()
 	delete(Windows, w.ID)

@@ -136,6 +136,11 @@ func run() {
 						if sys.WindowID == e.WindowID {
 							if e.Event == sdl.WINDOWEVENT_CLOSE {
 								sys.Stop()
+								go func() {
+									// Force the window's main loop to cycle
+									time.Sleep(time.Millisecond)
+									sys.Synchro.Send(func() {})
+								}()
 								break
 							}
 						}
@@ -204,12 +209,7 @@ func CreateWindow(engine *core.Engine, title string, size *std.XY[int], pos *std
 	w.Definition.Handle = handle
 	w.WindowID, _ = handle.GetID()
 	w.System = core.CreateSystem(engine, func(ctx core.Context) {
-		if w.Alive {
-			w.Synchro.Send(func() {
-				impulsable.Impulse(ctx)
-				w.Definition.Handle.GLSwap()
-			})
-		}
+		impulse(w, impulsable, ctx)
 	}, potential, muted)
 	Windows[w.ID] = w
 
@@ -242,12 +242,7 @@ func CreateFullscreenWindow(engine *core.Engine, title string, impulsable core.I
 	w.Definition.Handle = handle
 	w.WindowID, _ = handle.GetID()
 	w.System = core.CreateSystem(engine, func(ctx core.Context) {
-		if w.Alive {
-			w.Synchro.Send(func() {
-				impulsable.Impulse(ctx)
-				w.Definition.Handle.GLSwap()
-			})
-		}
+		impulse(w, impulsable, ctx)
 	}, potential, muted)
 	Windows[w.ID] = w
 
@@ -255,6 +250,15 @@ func CreateFullscreenWindow(engine *core.Engine, title string, impulsable core.I
 	go w.start(impulsable)
 
 	return w.Head
+}
+
+func impulse(w *wrapper, impulsable core.Impulsable, ctx core.Context) {
+	if core.Alive && w.Alive {
+		w.Synchro.Send(func() {
+			impulsable.Impulse(ctx)
+			w.Definition.Handle.GLSwap()
+		})
+	}
 }
 
 func (w *wrapper) start(impulsable core.Impulsable) {
@@ -273,19 +277,17 @@ func (w *wrapper) start(impulsable core.Impulsable) {
 		core.Fatalf(ModuleName, "failed to initialize OpenGL: %v\n", err)
 	}
 
-	glVersion := gl.GoStr(gl.GetString(gl.VERSION))
-
 	w.Definition.Context = glContext
 	defer sdl.GLDeleteContext(glContext)
 
+	glVersion := gl.GoStr(gl.GetString(gl.VERSION))
 	core.Verbosef(ModuleName, "[%d.%d] initialized with %s\n", w.WindowID, w.ID, glVersion)
+
 	impulsable.Initialize()
 	for core.Alive && w.Alive {
-		w.Synchro.Engage()
-
-		// GL threads don't need to operate more than 1kHz
-		// Why waste the cycles?
-		time.Sleep(time.Millisecond)
+		impulsable.Lock()
+		w.Synchro.EngageOnce()
+		impulsable.Unlock()
 	}
 	impulsable.Cleanup()
 	w.destroy()
