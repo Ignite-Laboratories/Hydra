@@ -19,7 +19,7 @@ func init() {
 	reset()
 }
 
-var Windows map[uint64]*wrapper
+var Windows map[uint64]*Head
 var Synchro std.Synchro
 
 var GLVersion struct {
@@ -31,30 +31,25 @@ var GLVersion struct {
 var once sync.Once
 var running bool
 
-type wrapper struct {
-	*Head
-	WindowID uint32
-}
-
-func (w *wrapper) destroy() {
+func (h *Head) destroy() {
 	// Queue up the destruction action on the SDL thread...
 	go Synchro.Send(func() {
-		w.Definition.Handle.Destroy()
+		h.Definition.Handle.Destroy()
 	})
 
 	// ...then send an artificial event to trigger the event poll to cycle
 	userEvent := sdl.UserEvent{
 		Type:  destructionEvent,
 		Code:  int32(core.NextID()),
-		Data1: unsafe.Pointer(uintptr(w.ID)),
-		Data2: unsafe.Pointer(uintptr(w.WindowID)),
+		Data1: unsafe.Pointer(uintptr(h.ID)),
+		Data2: unsafe.Pointer(uintptr(h.WindowID)),
 	}
 	sdl.PushEvent(&userEvent)
 }
 
 func reset() {
 	once = sync.Once{}
-	Windows = make(map[uint64]*wrapper)
+	Windows = make(map[uint64]*Head)
 	Synchro = make(std.Synchro)
 	running = false
 }
@@ -172,7 +167,7 @@ func run() {
 	wg.Wait()
 }
 
-func CreateWindow(engine *core.Engine, title string, size *std.XY[int], pos *std.XY[int], impulsable core.Impulsable, potential core.Potential, muted bool) *Head {
+func CreateWindow(engine *core.Engine, title string, size *std.XY[int], pos *std.XY[int], potential core.Potential, muted bool) *Head {
 	Activate()
 
 	var handle *sdl.Window
@@ -203,23 +198,39 @@ func CreateWindow(engine *core.Engine, title string, size *std.XY[int], pos *std
 		handle = h
 	})
 
-	w := &wrapper{}
-	w.Head = &Head{}
-	w.Synchro = make(std.Synchro)
-	w.Definition.Handle = handle
-	w.WindowID, _ = handle.GetID()
-	w.System = core.CreateSystem(engine, func(ctx core.Context) {
-		impulse(w, impulsable, ctx)
+	h := &Head{}
+	h.SetImpulsable = h.setImpulsable
+	h.Synchro = make(std.Synchro)
+	h.Definition.Handle = handle
+	h.WindowID, _ = handle.GetID()
+	h.System = core.CreateSystem(engine, func(ctx core.Context) {
+		if core.Alive && h.Alive {
+			h.Synchro.Send(func() {
+				if h.Impulsable != nil {
+					h.Impulsable.Impulse(ctx)
+					h.Definition.Handle.GLSwap()
+				}
+			})
+		}
 	}, potential, muted)
-	Windows[w.ID] = w
+	Windows[h.ID] = h
 
-	core.Verbosef(ModuleName, "window [%d.%d] created\n", w.WindowID, w.ID)
-	go w.start(impulsable)
-
-	return w.Head
+	core.Verbosef(ModuleName, "window [%d.%d] created\n", h.WindowID, h.ID)
+	return h
 }
 
-func CreateFullscreenWindow(engine *core.Engine, title string, impulsable core.Impulsable, potential core.Potential, muted bool) *Head {
+func (h *Head) setImpulsable(impulsable core.Impulsable) {
+	h.Mutex.Lock()
+	defer h.Mutex.Unlock()
+
+	if h.Impulsable == nil {
+		core.Verbosef(ModuleName, "[%d.%d] provided an impulsable\n", h.WindowID, h.ID)
+		h.Impulsable = impulsable
+		go h.start()
+	}
+}
+
+func CreateFullscreenWindow(engine *core.Engine, title string, potential core.Potential, muted bool) *Head {
 	Activate()
 
 	var handle *sdl.Window
@@ -236,36 +247,32 @@ func CreateFullscreenWindow(engine *core.Engine, title string, impulsable core.I
 		handle = h
 	})
 
-	w := &wrapper{}
-	w.Head = &Head{}
-	w.Synchro = make(std.Synchro)
-	w.Definition.Handle = handle
-	w.WindowID, _ = handle.GetID()
-	w.System = core.CreateSystem(engine, func(ctx core.Context) {
-		impulse(w, impulsable, ctx)
+	h := &Head{}
+	h.SetImpulsable = h.setImpulsable
+	h.Synchro = make(std.Synchro)
+	h.Definition.Handle = handle
+	h.WindowID, _ = handle.GetID()
+	h.System = core.CreateSystem(engine, func(ctx core.Context) {
+		if core.Alive && h.Alive {
+			h.Synchro.Send(func() {
+				if h.Impulsable != nil {
+					h.Impulsable.Impulse(ctx)
+					h.Definition.Handle.GLSwap()
+				}
+			})
+		}
 	}, potential, muted)
-	Windows[w.ID] = w
+	Windows[h.ID] = h
 
-	core.Verbosef(ModuleName, "fullscreen window [%d.%d] created\n", w.WindowID, w.ID)
-	go w.start(impulsable)
-
-	return w.Head
+	core.Verbosef(ModuleName, "fullscreen window [%d.%d] created\n", h.WindowID, h.ID)
+	return h
 }
 
-func impulse(w *wrapper, impulsable core.Impulsable, ctx core.Context) {
-	if core.Alive && w.Alive {
-		w.Synchro.Send(func() {
-			impulsable.Impulse(ctx)
-			w.Definition.Handle.GLSwap()
-		})
-	}
-}
-
-func (w *wrapper) start(impulsable core.Impulsable) {
+func (h *Head) start() {
 	runtime.LockOSThread()
 	defer runtime.UnlockOSThread()
 
-	glContext, err := w.Definition.Handle.GLCreateContext()
+	glContext, err := h.Definition.Handle.GLCreateContext()
 	if err != nil {
 		core.Fatalf(ModuleName, "failed to create OpenGL context: %v\n", err)
 	}
@@ -277,18 +284,18 @@ func (w *wrapper) start(impulsable core.Impulsable) {
 		core.Fatalf(ModuleName, "failed to initialize OpenGL: %v\n", err)
 	}
 
-	w.Definition.Context = glContext
+	h.Definition.Context = glContext
 	defer sdl.GLDeleteContext(glContext)
 
 	glVersion := gl.GoStr(gl.GetString(gl.VERSION))
-	core.Verbosef(ModuleName, "[%d.%d] initialized with %s\n", w.WindowID, w.ID, glVersion)
+	core.Verbosef(ModuleName, "[%d.%d] initialized with %s\n", h.WindowID, h.ID, glVersion)
 
-	impulsable.Initialize()
-	for core.Alive && w.Alive {
-		impulsable.Lock()
-		w.Synchro.EngageOnce()
-		impulsable.Unlock()
+	h.Impulsable.Initialize()
+	for core.Alive && h.Alive {
+		h.Impulsable.Lock()
+		h.Synchro.EngageOnce()
+		h.Impulsable.Unlock()
 	}
-	impulsable.Cleanup()
-	w.destroy()
+	h.Impulsable.Cleanup()
+	h.destroy()
 }

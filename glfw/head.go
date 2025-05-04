@@ -1,14 +1,26 @@
 package glfw
 
 import (
-	"github.com/go-gl/glfw/v3.3/glfw"
+	"github.com/ignite-laboratories/core"
+	"github.com/ignite-laboratories/core/std"
 	"github.com/ignite-laboratories/hydra"
+	"sync"
 )
 
-type Head hydra.Head[*glfw.Window]
+type Head struct {
+	hydra.Head[GLFWDefinition]
+	mutex sync.Mutex
+}
 
-func (w *Head) destroy() {
+func (h *Head) destroy() {
 	Synchro.Send(func() {
-		w.Definition.Destroy()
+		h.Definition.Handle.Destroy()
 	})
+}
+
+func Create(engine *core.Engine, fullscreen bool, framePotential core.Potential, title string, size *std.XY[int], pos *std.XY[int]) *hydra.Head[GLFWDefinition] {
+	if fullscreen {
+		return &CreateFullscreenWindow(engine, title, framePotential, false).Head
+	}
+	return &CreateWindow(engine, title, size, pos, framePotential, false).Head
 }

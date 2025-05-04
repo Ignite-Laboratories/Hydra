@@ -97,7 +97,18 @@ func run() {
 	wg.Wait()
 }
 
-func CreateWindow(engine *core.Engine, title string, size *std.XY[int], pos *std.XY[int], impulsable core.Impulsable, potential core.Potential, muted bool) *Head {
+func (h *Head) setImpulsable(impulsable core.Impulsable) {
+	h.Mutex.Lock()
+	defer h.Mutex.Unlock()
+
+	if h.Impulsable == nil {
+		core.Verbosef(ModuleName, "[%d] provided an impulsable\n", h.ID)
+		h.Impulsable = impulsable
+		go h.start()
+	}
+}
+
+func CreateWindow(engine *core.Engine, title string, size *std.XY[int], pos *std.XY[int], potential core.Potential, muted bool) *Head {
 	Activate()
 
 	// TODO: Position - In GLFW, this requires setting the window hint to hidden, then setting the position, then "showing" the window at that location
@@ -119,21 +130,27 @@ func CreateWindow(engine *core.Engine, title string, size *std.XY[int], pos *std
 		handle = h
 	})
 
-	head := &Head{}
-	head.Synchro = make(std.Synchro)
-	head.Definition = handle
-	head.System = core.CreateSystem(engine, func(ctx core.Context) {
-		impulse(head, impulsable, ctx)
+	h := &Head{}
+	h.SetImpulsable = h.setImpulsable
+	h.Synchro = make(std.Synchro)
+	h.Definition.Handle = handle
+	h.System = core.CreateSystem(engine, func(ctx core.Context) {
+		if core.Alive && h.Alive {
+			h.Synchro.Send(func() {
+				if h.Impulsable != nil {
+					h.Impulsable.Impulse(ctx)
+					h.Definition.Handle.SwapBuffers()
+				}
+			})
+		}
 	}, potential, muted)
-	Windows[head.ID] = head
+	Windows[h.ID] = h
 
-	core.Verbosef(ModuleName, "window [%d] created\n", head.ID)
-	go head.start(impulsable)
-
-	return head
+	core.Verbosef(ModuleName, "window [%d] created\n", h.ID)
+	return h
 }
 
-func CreateFullscreenWindow(engine *core.Engine, title string, impulsable core.Impulsable, potential core.Potential, muted bool) *Head {
+func CreateFullscreenWindow(engine *core.Engine, title string, potential core.Potential, muted bool) *Head {
 	Activate()
 
 	var handle *glfw.Window
@@ -148,34 +165,31 @@ func CreateFullscreenWindow(engine *core.Engine, title string, impulsable core.I
 		handle = h
 	})
 
-	head := &Head{}
-	head.Synchro = make(std.Synchro)
-	head.Definition = handle
-	head.System = core.CreateSystem(engine, func(ctx core.Context) {
-		impulse(head, impulsable, ctx)
+	h := &Head{}
+	h.SetImpulsable = h.setImpulsable
+	h.Synchro = make(std.Synchro)
+	h.Definition.Handle = handle
+	h.System = core.CreateSystem(engine, func(ctx core.Context) {
+		if core.Alive && h.Alive {
+			h.Synchro.Send(func() {
+				if h.Impulsable != nil {
+					h.Impulsable.Impulse(ctx)
+					h.Definition.Handle.SwapBuffers()
+				}
+			})
+		}
 	}, potential, muted)
-	Windows[head.ID] = head
+	Windows[h.ID] = h
 
-	core.Verbosef(ModuleName, "fullscreen window [%d] created\n", head.ID)
-	go head.start(impulsable)
-
-	return head
+	core.Verbosef(ModuleName, "fullscreen window [%d] created\n", h.ID)
+	return h
 }
 
-func impulse(head *Head, impulsable core.Impulsable, ctx core.Context) {
-	if core.Alive && head.Alive {
-		head.Synchro.Send(func() {
-			impulsable.Impulse(ctx)
-			head.Definition.SwapBuffers()
-		})
-	}
-}
-
-func (w *Head) start(impulsable core.Impulsable) {
+func (h *Head) start() {
 	runtime.LockOSThread()
 	defer runtime.UnlockOSThread()
 
-	w.Definition.MakeContextCurrent()
+	h.Definition.Handle.MakeContextCurrent()
 
 	//sdl.GLSetSwapInterval(1)
 
@@ -185,20 +199,20 @@ func (w *Head) start(impulsable core.Impulsable) {
 	}
 
 	glVersion := gl.GoStr(gl.GetString(gl.VERSION))
-	core.Verbosef(ModuleName, "[%d] initialized with %s\n", w.ID, glVersion)
+	core.Verbosef(ModuleName, "[%d] initialized with %s\n", h.ID, glVersion)
 
-	impulsable.Initialize()
-	for core.Alive && w.Alive && !w.Definition.ShouldClose() {
-		impulsable.Lock()
-		w.Synchro.Engage()
-		impulsable.Unlock()
-		
+	h.Impulsable.Initialize()
+	for core.Alive && h.Alive && !h.Definition.Handle.ShouldClose() {
+		h.Impulsable.Lock()
+		h.Synchro.Engage()
+		h.Impulsable.Unlock()
+
 		// GL threads don't need to operate at more than 1kHz
 		// Why waste the cycles?
 		time.Sleep(time.Millisecond)
 	}
-	impulsable.Cleanup()
-	delete(Windows, w.ID)
-	w.destroy()
-	core.Verbosef(ModuleName, "window [%d] cleaned up\n", w.ID)
+	h.Impulsable.Cleanup()
+	delete(Windows, h.ID)
+	h.destroy()
+	core.Verbosef(ModuleName, "window [%d] cleaned up\n", h.ID)
 }
